@@ -28,7 +28,7 @@ O modelo atual opera com as seguintes definições:
 * **Features:** O modelo considera a companhia aérea, aeroporto de origem, destino, mês, dia da semana e hora do voo.
 * **Métrica Principal:** Priorizamos o Recall (Sensibilidade) para garantir que o sistema alerte sobre a maioria dos possíveis atrasos.
 
-## Guia de Instalação e Execução
+## Guia de Instalação e Execução (Local)
 
 ### 1. Preparar o Ambiente
 Certifique-se de ter o Python instalado. Recomenda-se o uso de um ambiente virtual (venv).
@@ -76,4 +76,19 @@ A API estará disponível em: `http://127.0.0.1:8000`
   "nivel_risco": "ALTO",
   "modelo": "Random Forest MVP v1"
 }
+```
+
+##  Deploy em Produção (Oracle Cloud)
+
+Graças à infraestrutura configurada na OCI, a API já está disponível publicamente para integração via internet.
+
+* **Base URL:** `http://flight-on-time-ds.vm3.arbly.com`
+* **Endpoint de Predição:** `POST /predict`
+* **Documentação Interativa (Swagger):** [Acessar Docs](http://flight-on-time-ds.vm3.arbly.com/docs)
+
+**Teste rápido via Terminal (cURL):**
+```bash
+curl -X POST "http://flight-on-time-ds.vm3.arbly.com/predict" \
+-H "Content-Type: application/json" \
+-d '{"companhia": "AZUL", "origem": "Guarulhos", "destino": "Recife", "data_partida": "2025-12-25T14:30:00"}'
 ```
