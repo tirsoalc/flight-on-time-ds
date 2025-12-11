@@ -1,8 +1,7 @@
 pandas
-numpy
 scikit-learn
+joblib
 fastapi
 uvicorn
-joblib
-matplotlib
-seaborn
+pydantic
+holidays

@@ -78,12 +78,12 @@ A API estará disponível em: `http://127.0.0.1:8000`
 ```json
 {
   "previsao": "ATRASADO",
-  "probabilidade": 0.8309,
+  "probabilidade": 0.7221,
   "nivel_risco": "ALTO",
-  "mensagem": "Alta probabilidade de atraso (>15 min).",
+  "mensagem": "Alta probabilidade de atraso (72.2%).",
   "detalles": {
-    "distancia": 2689.0,
-    "hora_partida": 20
+    "is_feriado": true,
+    "distancia": 2689.0
   }
 }
 ```
