@@ -54,7 +54,7 @@ python -m uvicorn src.app:app --reload
 ```
 A API estará disponível em: `http://127.0.0.1:8000`
 
-## Documentação da API (Contrato)
+## Documentação da API (Contrato V2)
 
 **Endpoint:** `POST /predict`
 
@@ -64,17 +64,21 @@ A API estará disponível em: `http://127.0.0.1:8000`
   "companhia": "AZUL",
   "origem": "Guarulhos",
   "destino": "Recife",
-  "data_partida": "2025-12-25T14:30:00"
+  "data_partida": "2025-12-25T14:30:00",
+  "distancia_km": 2100.5
 }
+
 ```
 
 **Exemplo de Resposta:**
 ```json
 {
-  "atrasado": true,
-  "probabilidade": 0.72,
-  "nivel_risco": "ALTO",
-  "modelo": "Random Forest MVP v1"
+  "previsao": "Atrasado",
+  "probabilidade": 0.6369,
+  "detalles": {
+    "distancia": 2100.5,
+    "hora": 14
+  }
 }
 ```
 
@@ -90,5 +94,5 @@ Graças à infraestrutura configurada na OCI, a API já está disponível public
 ```bash
 curl -X POST "http://flight-on-time-ds.vm3.arbly.com/predict" \
 -H "Content-Type: application/json" \
--d '{"companhia": "AZUL", "origem": "Guarulhos", "destino": "Recife", "data_partida": "2025-12-25T14:30:00"}'
+-d '{"companhia": "AZUL", "origem": "Guarulhos", "destino": "Recife", "data_partida": "2025-12-25T14:30:00", "distancia_km": 2100.5}'
 ```
