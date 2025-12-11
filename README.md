@@ -3,7 +3,7 @@
 ## Sobre o Projeto
 Este repositório contém o motor de Inteligência Artificial do projeto FlightOnTime, desenvolvido durante a Simulação da No Country.
 
-O objetivo do MVP é fornecer um microserviço capaz de calcular a probabilidade de atraso de voos comerciais no Brasil. O modelo utiliza dados históricos de operações para identificar padrões de risco baseados em companhia aérea, rota, data e horário.
+O objetivo do MVP é fornecer um microserviço capaz de calcular a probabilidade de atraso de voos comerciais no Brasil. O modelo utiliza dados históricos de operações para identificar padrões de risco baseados em companhia aérea, rota, data, horário e distância.
 
 ## Arquitetura e Tecnologias
 A solução foi construída com foco em simplicidade de integração e robustez.
@@ -22,11 +22,15 @@ A solução foi construída com foco em simplicidade de integração e robustez.
 * **notebooks/**: Contém os estudos exploratórios e validação das hipóteses de negócio.
 * **data/**: Diretório local para armazenamento do dataset (BrFlights2.csv).
 
-## Regra de Negócio (Modelo)
-O modelo atual opera com as seguintes definições:
-* **Target:** Um voo é considerado "Atrasado" se a diferença entre a partida real e prevista for maior que 15 minutos.
-* **Features:** O modelo considera a companhia aérea, aeroporto de origem, destino, mês, dia da semana e hora do voo.
-* **Métrica Principal:** Priorizamos o Recall (Sensibilidade) para garantir que o sistema alerte sobre a maioria dos possíveis atrasos.
+## Regra de Negócio (Modelo V3 - Semáforo)
+O modelo atual opera com uma lógica de **Risco Escalonado** para apoiar a decisão do usuário:
+
+* **Target:** Um voo é tecnicamente "Atrasado" se a diferença for > 15 minutos.
+* **Semáforo de Risco (Probabilidade):**
+    * 🟢 **BAIXO (< 40%):** Previsão de Pontualidade.
+    * 🟡 **MÉDIO (40% - 60%):** Estado de Alerta (Monitorar).
+    * 🔴 **ALTO (> 60%):** Alta probabilidade de Atraso.
+* **Métrica Principal:** Priorizamos o Recall (Sensibilidade) de 86% para garantir alertas de segurança.
 
 ## Guia de Instalação e Execução (Local)
 
@@ -44,7 +48,7 @@ Antes de iniciar a API, é necessário processar os dados e gerar o arquivo do m
 ```bash
 python src/train.py
 ```
-*Isso criará o arquivo `flight_model_mvp.joblib` dentro da pasta src.*
+*Isso criará o arquivo `flight_classifier_mvp.joblib` dentro da pasta src.*
 
 ### 3. Iniciar a API
 Com o modelo gerado, inicie o servidor local:
