@@ -1,104 +1,155 @@
-# FlightOnTime - Previsão de Atrasos de Voos
+#  FlightOnTime - Motor de Inteligência Artificial
 
-## Sobre o Projeto
-Este repositório contém o motor de Inteligência Artificial do projeto FlightOnTime, desenvolvido durante a Simulação da No Country.
+> **Status:**  Em Produção (v3.0.0-CAT) | **Recall de Segurança:** 89.4%
 
-O objetivo do MVP é fornecer um microserviço capaz de calcular a probabilidade de atraso de voos comerciais no Brasil. O modelo utiliza dados históricos de operações para identificar padrões de risco baseados em companhia aérea, rota, data, horário, distância e **feriados nacionais**.
+Este repositório contém o **Core de Data Science** do projeto FlightOnTime. Nossa missão é prever atrasos em voos comerciais no Brasil utilizando Machine Learning avançado, focando na segurança e planejamento do passageiro.
 
-## Arquitetura e Tecnologias
-A solução foi construída com foco em simplicidade de integração e robustez.
+---
 
-* **Linguagem:** Python 3.x
-* **Machine Learning:** Scikit-Learn (Random Forest Classifier)
-* **API:** FastAPI (Interface para o Back-End Java)
-* **Processamento de Dados:** Pandas e Numpy
+##  A Evolução do Modelo (Do MVP ao State-of-the-Art)
+
+Nosso maior desafio foi lidar com o **desbalanceamento severo** dos dados (apenas 11% dos voos atrasam). Um modelo comum teria 89% de acurácia apenas dizendo "Nenhum voo vai atrasar", o que seria inútil.
+
+Para resolver isso, realizamos uma bateria de testes com diferentes algoritmos de **Boosting** e **Ensemble**, priorizando a métrica de **Recall** (Capacidade de detectar o perigo).
+
+| Versão | Modelo | Tecnologia | Recall (Detecção) | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| v1.0 | **Random Forest** | Bagging Ensemble | 87.0% | Descontinuado |
+| v2.0 | **XGBoost** | Gradient Boosting | 87.2% | Testado |
+| **v3.0** | **CatBoost** | **Categorical Boosting** | **89.4% ** | **Em Produção** |
+
+**Por que CatBoost?**
+O algoritmo da Yandex demonstrou superioridade ao lidar com as variáveis categóricas complexas (centenas de rotas e companhias aéreas) e nos permitiu atingir quase **90% de detecção de atrasos** sem sacrificar a performance da API.
+
+---
+
+##  Engenharia de Features e Arquitetura
+
+O modelo não olha apenas para o passado. Enriquecemos os dados brutos com inteligência de calendário e geolocalização:
+
+1.  **Detector de Feriados Nacionais:**
+    * Utilizamos a biblioteca `holidays` para cruzar a data do voo com o calendário oficial brasileiro.
+    * *Insight:* Voos em feriados possuem padrões de tráfego aéreo radicalmente diferentes.
+2.  **Georreferenciamento:**
+    * Cálculo preciso da distância (`distancia_km`) entre coordenadas de aeroportos, não apenas a rota teórica.
+3.  **Decomposição Temporal:**
+    * Análise granular de Hora, Dia da Semana e Sazonalidade (Mês).
+
+### Stack Tecnológico
+* **Linguagem:** Python 3.10+
+* **ML Core:** CatBoost, Scikit-Learn
+* **Data Processing:** Pandas, Numpy, Holidays
+* **API:** FastAPI (Interface de baixa latência)
 * **Serialização:** Joblib
 
-## Estrutura do Repositório
+---
 
-* **src/**: Contém o código-fonte principal.
-    * `train.py`: Script responsável pelo tratamento de dados e treinamento do modelo.
-    * `app.py`: Aplicação web (API) que serve as predições.
-* **notebooks/**: Contém os estudos exploratórios e validação das hipóteses de negócio.
-* **data/**: Diretório local para armazenamento do dataset (BrFlights2.csv).
+##  Regra de Negócio: O Semáforo de Risco
 
-## Regra de Negócio (Modelo V3 - Semáforo)
-O modelo atual opera com uma lógica de **Risco Escalonado** para apoiar a decisão do usuário:
+Para traduzir a probabilidade matemática (0.0 a 1.0) em uma experiência útil para o usuário, criamos uma lógica de **Risco Escalonado**.
 
-* **Target:** Um voo é tecnicamente "Atrasado" se a diferença for > 15 minutos.
-* **Semáforo de Risco (Probabilidade):**
-    * 🟢 **BAIXO (< 40%):** Previsão de Pontualidade.
-    * 🟡 **MÉDIO (40% - 60%):** Estado de Alerta (Monitorar).
-    * 🔴 **ALTO (> 60%):** Alta probabilidade de Atraso.
-* **Métrica Principal:** Priorizamos o Recall (Sensibilidade) de **87%** para garantir alertas de segurança.
+> **Nota Técnica:** Definimos o *Threshold* (Limiar de Decisão) em **0.40**.
+> *Por que 40% e não 50?* Nossos testes mostraram que subir a régua para 41% causava uma queda crítica na detecção de atrasos. Preferimos pecar pelo excesso de zelo (alerta preventivo) do que deixar um passageiro perder seu voo.
 
-## Guia de Instalação e Execução (Local)
+* 🟢 **PONTUAL (Risco Baixo < 40%):**
+    * O voo apresenta condições operacionais normais.
+* 🟡 **ALERTA (Risco Médio 40% - 60%):**
+    * O modelo detectou instabilidade. Recomendamos monitorar o painel, mas não há certeza de atraso.
+* 🔴 **ATRASADO (Risco Alto > 60%):**
+    * Alta probabilidade de problemas. O usuário deve se planejar para contingências.
+
+---
+
+##  Instalação e Execução Local
 
 ### 1. Preparar o Ambiente
-Certifique-se de ter o Python instalado. Recomenda-se o uso de um ambiente virtual (venv).
+Clone o repositório e instale as dependências (incluindo `catboost` e `holidays`):
 
-Instale as dependências do projeto (agora inclui a lib `holidays`):
 ```bash
+# Criação do ambiente virtual (opcional mas recomendado)
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# venv\Scripts\activate   # Windows
+
+# Instalação
 pip install -r requirements.txt
 ```
 
-### 2. Treinar o Modelo (Gerar o Cérebro)
-Antes de iniciar a API, é necessário processar os dados e gerar o arquivo do modelo (.joblib). Execute o script de treinamento:
+### 2. Treinar o "Cérebro" (Opcional)
+O repositório já inclui o modelo treinado. Mas se desejar retreinar com novos dados:
 
 ```bash
 python src/train.py
 ```
-*Isso criará o arquivo `flight_classifier_mvp.joblib` dentro da pasta src.*
 
-### 3. Iniciar a API
-Com o modelo gerado, inicie o servidor local:
+*Isso gerará um novo arquivo `flight_classifier_mvp.joblib` com a lógica mais recente.*
+
+### 3. Subir a API
+Inicie o servidor de predição localmente:
 
 ```bash
 python -m uvicorn src.app:app --reload
 ```
-A API estará disponível em: `http://127.0.0.1:8000`
 
-## Documentação da API (Contrato V3)
+Acesse a documentação automática em: `http://127.0.0.1:8000/docs`
+
+---
+
+##  Documentação da API
+
+A API foi desenhada para ser consumida por qualquer Front-End ou Back-End.
 
 **Endpoint:** `POST /predict`
 
-**Exemplo de Requisição (JSON):**
+**Payload de Entrada (Exemplo):**
+
 ```json
 {
-  "companhia": "AZUL",
-  "origem": "Guarulhos",
-  "destino": "Recife",
-  "data_partida": "2025-12-25T14:30:00",
-  "distancia_km": 2100.5
+  "companhia": "TAM",
+  "origem": "Guarulhos - Governador Andre Franco Montoro",
+  "destino": "Eduardo Gomes",
+  "data_partida": "2025-12-25T20:00:00",
+  "distancia_km": 2689.0
 }
-
 ```
 
-**Exemplo de Resposta:**
+**Resposta da API (Exemplo Real):**
+
 ```json
 {
-  "previsao": "ATRASADO",
-  "probabilidade": 0.7221,
+  "previsao": "🔴 ATRASADO",
   "nivel_risco": "ALTO",
-  "mensagem": "Alta probabilidade de atraso (72.2%).",
-  "detalles": {
-    "is_feriado": true,
-    "distancia": 2689.0
-  }
+  "probabilidade": 0.8942,
+  "is_feriado": true,
+  "mensagem": "Alta probabilidade de atraso (89.4%). Planeje-se."
 }
 ```
+
+---
 
 ##  Deploy em Produção (Oracle Cloud)
 
 Graças à infraestrutura configurada na OCI, a API já está disponível publicamente para integração via internet.
 
-* **Base URL:** `http://flight-on-time-ds.vm3.arbly.com`
+* **Base URL:** `http://flight-on-time.ds.vm3.arbly.com`
 * **Endpoint de Predição:** `POST /predict`
-* **Documentação Interativa (Swagger):** [Acessar Docs](http://flight-on-time-ds.vm3.arbly.com/docs)
+* **Documentação Interativa (Swagger):** [Acessar Docs](http://flight-on-time.ds.vm3.arbly.com/docs)
 
 **Teste rápido via Terminal (cURL):**
+
 ```bash
-curl -X POST "http://flight-on-time-ds.vm3.arbly.com/predict" \
+curl -X POST "http://flight-on-time.ds.vm3.arbly.com/predict" \
 -H "Content-Type: application/json" \
 -d '{"companhia": "AZUL", "origem": "Guarulhos", "destino": "Recife", "data_partida": "2025-12-25T14:30:00", "distancia_km": 2100.5}'
 ```
+
+---
+
+## Próximos Passos (Roadmap)
+
+Embora o modelo atual seja robusto (89% Recall), identificamos oportunidades para a versão 2.0:
+
+1. **Integração Meteorológica em Tempo Real:** Conectar com APIs de clima (OpenWeather) para considerar chuvas/tempestades no momento da predição.
+2. **Monitoramento de Tráfego Aéreo:** Incluir variáveis sobre congestionamento de pistas em tempo real.
+
+---

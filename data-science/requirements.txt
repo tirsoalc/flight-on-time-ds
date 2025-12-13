@@ -1,7 +1,8 @@
-pandas
-scikit-learn
-joblib
 fastapi
 uvicorn
-pydantic
+pandas
+joblib
+scikit-learn
 holidays
+pydantic
+catboost

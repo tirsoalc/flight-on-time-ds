@@ -4,11 +4,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
 import os
-import holidays  # <--- Importante
+import holidays
+import catboost # <--- 1. CRÍTICO: Necessário para carregar o modelo
 
-app = FastAPI(title="FlightOnTime AI Service (V3)")
+app = FastAPI(title="FlightOnTime AI Service (V3 - CatBoost)")
 
-# --- 1. CARGA ---
+# --- 1. CARGA DE ARTEFATOS ---
 MODEL_FILENAME = "flight_classifier_mvp.joblib"
 current_dir = os.path.dirname(__file__)
 model_path = os.path.join(current_dir, MODEL_FILENAME)
@@ -17,20 +18,28 @@ artifacts = None
 br_holidays = holidays.Brazil() # Cargar calendario una vez al inicio
 
 try:
+    print(f"🔄 Carregando modelo de: {model_path}")
     artifacts = joblib.load(model_path)
+    
     model = artifacts['model']
     encoders = artifacts['encoders']
     expected_features = artifacts.get('features', [])
-    # Leer el threshold del metadata si existe, sino usar 0.40 por defecto
-    THRESHOLD = artifacts.get('metadata', {}).get('threshold', 0.40)
+    metadata = artifacts.get('metadata', {})
     
-    print(f"✅ Modelo V3 carregado. Features esperadas: {len(expected_features)}")
-    print(f"⚙️ Threshold de decisão: {THRESHOLD}")
+    # 2. Ler o threshold salvo no Notebook (ou usar 0.40 se não achar)
+    THRESHOLD = metadata.get('threshold_recomendado', 0.40)
+    
+    print(f"✅ Modelo V3 ({metadata.get('tecnologia', 'Unknown')}) carregado com sucesso!")
+    print(f"📊 Recall Esperado: {metadata.get('recall_atrasos', '?')}")
+    print(f"⚙️ Threshold de decisão configurado: {THRESHOLD}")
+
 except Exception as e:
-    print(f"⚠️ Erro crítico carregando modelo: {e}")
+    print(f"⚠️ ERRO CRÍTICO ao carregar modelo: {e}")
+    # Valores de fallback para não derrubar a API imediatamente
+    model = None
     THRESHOLD = 0.40
 
-# --- 2. INPUT ---
+# --- 2. INPUT DATA MODEL ---
 class FlightInput(BaseModel):
     companhia: str
     origem: str
@@ -38,25 +47,29 @@ class FlightInput(BaseModel):
     data_partida: str
     distancia_km: float
 
-# --- 3. HELPER ---
+# --- 3. HELPER FUNCTIONS ---
 def safe_encode(encoder, value):
+    """Trata valores novos (nunca vistos) como 'Outros/0'"""
     try:
         return int(encoder.transform([str(value)])[0])
     except:
         return 0 
 
-# --- 4. ENDPOINT ---
+# --- 4. ENDPOINT PREDICT ---
 @app.post("/predict")
 def predict_flight(flight: FlightInput):
-    if not artifacts:
-        raise HTTPException(status_code=500, detail="Modelo não carregado")
+    if not model:
+        raise HTTPException(status_code=500, detail="Modelo não carregado no servidor")
 
     try:
         # A. Processar Data e Feriado
         dt = pd.to_datetime(flight.data_partida)
-        is_holiday = 1 if dt in br_holidays else 0 # Cálculo automático
+        
+        # <--- 3. CORREÇÃO CRÍTICA: Usar .date() para ignorar a hora --->
+        # Isso garante que '2025-12-25 14:00' seja visto como feriado
+        is_holiday = 1 if dt.date() in br_holidays else 0
 
-        # B. Criar DataFrame
+        # B. Criar DataFrame (Exatamente igual ao treino)
         input_data = pd.DataFrame([{
             'companhia_encoded': safe_encode(encoders['companhia'], flight.companhia),
             'origem_encoded': safe_encode(encoders['origem'], flight.origem),
@@ -65,17 +78,18 @@ def predict_flight(flight: FlightInput):
             'hora': dt.hour,
             'dia_semana': dt.dayofweek,
             'mes': dt.month,
-            'is_holiday': is_holiday # <--- Nova feature entrando no modelo
+            'is_holiday': is_holiday
         }])
         
-        # Garantir ordem das colunas
+        # Garantir ordem das colunas (Segurança extra)
         if expected_features:
             input_data = input_data[expected_features]
         
         # C. Predição
+        # CatBoost retorna [prob_classe_0, prob_classe_1] -> pegamos o indice 1
         prob = float(model.predict_proba(input_data)[0][1])
         
-        # D. Lógica de Semáforo (Usando o Threshold do Metadata)
+        # D. Lógica de Semáforo (Regra de Negócio)
         if prob < THRESHOLD:
             status = "PONTUAL"
             risco = "BAIXO"
@@ -83,11 +97,11 @@ def predict_flight(flight: FlightInput):
         elif THRESHOLD <= prob < 0.60:
             status = "ALERTA"
             risco = "MEDIO"
-            msg = "Risco moderado devido a condições operacionais (ex: feriado/horário)."
-        else:
+            msg = "Risco moderado. Recomendamos monitorar o status."
+        else: # >= 0.60
             status = "ATRASADO"
             risco = "ALTO"
-            msg = f"Alta probabilidade de atraso ({prob:.1%})."
+            msg = f"Alta probabilidade de atraso ({prob:.1%}). Planeje-se."
 
         return {
             "previsao": status,
@@ -95,12 +109,15 @@ def predict_flight(flight: FlightInput):
             "nivel_risco": risco,
             "mensagem": msg,
             "detalles": {
-                "is_feriado": bool(is_holiday), # Devolvemos esto para que el Frontend sepa por qué
-                "distancia": flight.distancia_km
+                "is_feriado": bool(is_holiday),
+                "distancia_km": flight.distancia_km,
+                "limiar_usado": THRESHOLD
             }
         }
 
     except Exception as e:
+        import traceback
+        traceback.print_exc() # Imprime o erro no terminal do servidor
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
