@@ -5,22 +5,23 @@ import holidays
 import os
 from catboost import CatBoostClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import recall_score, accuracy_score, classification_report
+from sklearn.metrics import recall_score, accuracy_score
 from sklearn.base import BaseEstimator, TransformerMixin
 
-# --- 1. DEFINIÇÃO DA CLASSE SAFE ENCODER (CRÍTICO) ---
+# --- 1. DEFINIÇÃO DA CLASSE SAFE ENCODER (ANTI-LEAKAGE) ---
 class SafeLabelEncoder(BaseEstimator, TransformerMixin):
     def __init__(self):
         self.classes_ = {}
         self.unknown_token = -1
 
     def fit(self, y):
+        # Garante que as chaves sejam strings desde o fit para robustez total
         unique_labels = pd.Series(y).unique()
-        self.classes_ = {label: idx for idx, label in enumerate(unique_labels)}
+        self.classes_ = {str(label): idx for idx, label in enumerate(unique_labels)}
         return self
 
     def transform(self, y):
-        # Converte para string para evitar erros de tipo e mapeia
+        # Mapeia para o índice aprendido ou retorna -1 para novos dados
         return pd.Series(y).apply(lambda x: self.classes_.get(str(x), self.unknown_token))
 
 # --- FUNÇÕES AUXILIARES ---
@@ -30,168 +31,151 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     delta_phi = np.radians(lat2 - lat1)
     delta_lambda = np.radians(lon2 - lon1)
     a = np.sin(delta_phi / 2)**2 + np.cos(phi1) * np.cos(phi2) * np.sin(delta_lambda / 2)**2
-    return r * 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    return np.round(r * 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a)), 2)
 
 # --- CONFIGURAÇÃO ---
-print(" Iniciando treinamento V4.0 (Weather-Aware)...")
+print(" Iniciando Treinamento V4.0 (Weather-Aware)...")
 current_dir = os.path.dirname(__file__)
 
-# [MUDANÇA V4] Apontamos para o dataset enriquecido com clima
+# Caminhos de arquivos
 data_path = os.path.join(current_dir, '../data/BrFlights_Enriched_v4.csv') 
-# [MUDANÇA V4] Nome do arquivo final atualizado
 model_path = os.path.join(current_dir, 'flight_classifier_v4.joblib')
 
 # 2. CARGA DE DADOS
 try:
-    # low_memory=False ajuda com datasets grandes
     df = pd.read_csv(data_path, low_memory=False)
     print(f"✅ Registros carregados: {len(df):,}")
 except FileNotFoundError:
-    print(f" Erro: Arquivo não encontrado em {data_path}")
-    print("   -> Execute o Notebook 1 para gerar o dataset enriquecido.")
+    print(f" Erro: Dataset não encontrado em {data_path}")
     exit()
 
-# 3. LIMPEZA E ENGENHARIA
-print("🛠️ Criando features e aplicando limpeza...")
+# 3. LIMPEZA E ENGENHARIA DE FEATURES
+print("🛠️  Aplicando Pipeline de Saneamento e Clima...")
 
-# A. Distância (Garantindo numérico)
+# A. Distância e Coordenadas
 for col in ['LatOrig', 'LongOrig', 'LatDest', 'LongDest']:
     df[col] = pd.to_numeric(df[col], errors='coerce')
 
 df['distancia_km'] = haversine_distance(df['LatOrig'], df['LongOrig'], df['LatDest'], df['LongDest'])
 
-# B. Datas
+# B. Tratamento Temporal (Merge já foi feito com Prevista no Notebook 1)
 cols_datas = ['Partida.Prevista', 'Partida.Real', 'Chegada.Real']
 for col in cols_datas:
     df[col] = pd.to_datetime(df[col], errors='coerce')
 
-# C. Filtragem Básica
-# [MUDANÇA V4] Remover cancelados e nulos críticos
+# C. Filtragem de Escopo (Apenas Realizados conforme MVP)
 if 'Situacao.Voo' in df.columns:
     df_clean = df[df['Situacao.Voo'] == 'Realizado'].copy()
 else:
-    df_clean = df.copy() # Assumindo que o CSV v4 já vem meio limpo
+    df_clean = df.copy()
 
 df_clean = df_clean.dropna(subset=cols_datas + ['distancia_km'])
 
-# D. Features Calculadas (Target)
+# D. Métricas de Tempo
 df_clean['delay_minutes'] = (df_clean['Partida.Real'] - df_clean['Partida.Prevista']).dt.total_seconds() / 60
 df_clean['duration_minutes'] = (df_clean['Chegada.Real'] - df_clean['Partida.Real']).dt.total_seconds() / 60
 
-# E. Outliers
-mask_clean = (df_clean['duration_minutes'] > 0) & (df_clean['delay_minutes'] > -60) & (df_clean['delay_minutes'] < 1440)
+# E. Filtro de Consistência Física (Outliers do MVP)
+mask_clean = (df_clean['duration_minutes'] > 0) & \
+             (df_clean['delay_minutes'] > -60) & \
+             (df_clean['delay_minutes'] < 1440)
 df_clean = df_clean[mask_clean].copy()
 
-# F. Target (> 15 min)
+# F. Definição do Target (> 15 min)
 df_clean['target'] = np.where(df_clean['delay_minutes'] > 15, 1, 0)
 
-# G. Variáveis Temporais e Climáticas
-print(" Processando Clima e Calendário...")
+# G. Variáveis Exógenas (Clima e Calendário)
 br_holidays = holidays.Brazil()
 df_clean['is_holiday'] = df_clean['Partida.Prevista'].dt.date.apply(lambda x: 1 if x in br_holidays else 0)
-
 df_clean['hora'] = df_clean['Partida.Prevista'].dt.hour
 df_clean['dia_semana'] = df_clean['Partida.Prevista'].dt.dayofweek
 df_clean['mes'] = df_clean['Partida.Prevista'].dt.month
 
-# [MUDANÇA V4] Garantir que colunas de clima existem e são float
+# H. Garantia de Integridade Climática
 for col in ['precipitation', 'wind_speed']:
-    if col in df_clean.columns:
-        df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(0)
-    else:
-        print(f" Aviso: Coluna {col} não encontrada. Preenchendo com 0.")
-        df_clean[col] = 0.0
+    df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(0)
 
-# Renomear
+if 'clima_imputado' not in df_clean.columns:
+    df_clean['clima_imputado'] = 0
+
+# Padronização de nomes
 df_clean.rename(columns={'Companhia.Aerea': 'companhia', 'Aeroporto.Origem': 'origem', 'Aeroporto.Destino': 'destino'}, inplace=True)
 
-# 4. SPLIT E ENCODING
-print(" Realizando Split e Encoding Seguro...")
+# 4. PREPARAÇÃO PARA MODELAGEM
+print("  Realizando Split Estratificado e Encoding...")
 
-# [MUDANÇA V4] Adicionamos precipitation e wind_speed na lista base
-cols_base = [
-    'companhia', 'origem', 'destino', 
-    'distancia_km', 'hora', 'dia_semana', 'mes', 'is_holiday',
-    'precipitation', 'wind_speed'
-]
-
+cols_base = ['companhia', 'origem', 'destino', 'distancia_km', 'hora', 'dia_semana', 'mes', 'is_holiday', 'precipitation', 'wind_speed', 'clima_imputado']
 X = df_clean[cols_base]
 y = df_clean['target']
 
-# Split Estratificado
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-# Encoding Seguro
+# Encoding Seguro (Anti-Leakage)
 encoders = {}
 cat_features = ['companhia', 'origem', 'destino']
 
 for col in cat_features:
     le = SafeLabelEncoder()
-    # Convertemos para string para garantir robustez
     X_train[col] = X_train[col].astype(str)
     X_test[col] = X_test[col].astype(str)
     
-    # Fit no Treino, Transform no Teste
     X_train[f'{col}_encoded'] = le.fit(X_train[col]).transform(X_train[col])
     X_test[f'{col}_encoded'] = le.transform(X_test[col])
     encoders[col] = le
 
-# [MUDANÇA V4] Lista final de features numéricas para o modelo
-features_finais = [
-    'companhia_encoded', 'origem_encoded', 'destino_encoded', 
-    'distancia_km', 'hora', 'dia_semana', 'mes', 'is_holiday',
-    'precipitation', 'wind_speed' # Novas!
-]
+features_model = [f'{c}_encoded' if c in cat_features else c for c in cols_base]
 
-# 5. TREINAMENTO
-print(f" Treinando CatBoost Classifier V4...")
+# 5. TREINAMENTO E VALIDAÇÃO
+print(" Treinando CatBoost Classifier V4 (Balanced)...")
 model = CatBoostClassifier(
-    iterations=300,            # [MUDANÇA V4] Aumentado para 300 para capturar padrões complexos
+    iterations=300,
     learning_rate=0.1,
     depth=6,
-    auto_class_weights='Balanced',
+    auto_class_weights='Balanced', # Vital para combater o desbalanceamento de 11%
     random_seed=42,
     verbose=50,
     allow_writing_files=False
 )
 
-# Treina apenas com as colunas numéricas finais
-model.fit(X_train[features_finais], y_train)
+model.fit(X_train[features_model], y_train)
 
-# 6. VALIDAÇÃO E MÉTRICAS
-THRESHOLD = 0.40 # [MUDANÇA V4] Threshold definido na análise de negócio
-probs = model.predict_proba(X_test[features_finais])[:, 1]
+# 6. MÉTRICAS DE OPERAÇÃO
+THRESHOLD = 0.40 
+probs = model.predict_proba(X_test[features_model])[:, 1]
 preds = (probs >= THRESHOLD).astype(int)
 
-recall = recall_score(y_test, preds)
-acc = accuracy_score(y_test, preds)
+final_recall = recall_score(y_test, preds)
+print("-" * 50)
+print(f" PERFORMANCE VALIDADA (Threshold {THRESHOLD}):")
+print(f"   -> Recall de Segurança: {final_recall:.2%}")
+print("-" * 50)
 
-print("-" * 40)
-print(f"🎯 Resultado Final (Threshold {THRESHOLD}):")
-print(f"   -> Recall:   {recall:.2%}")
-print(f"   -> Accuracy: {acc:.2%}")
-print("-" * 40)
+# 7. EXPORTAÇÃO E RETREINAMENTO FINAL
+print(" Gerando Artefato de Produção Final (X_full)...")
 
-# 7. EXPORTAR ARTEFATO COMPLETO
-print(" Salvando artefatos de produção...")
+# Preparamos o dataset completo para o treinamento final de deploy
+X_full = X.copy()
+for col in cat_features:
+    X_full[col] = X_full[col].astype(str)
+    X_full[f'{col}_encoded'] = encoders[col].transform(X_full[col])
 
-# Re-treinar com TODO o dataset (Opcional, mas recomendado para produção)
-# Aqui, por simplicidade no script, salvaremos o modelo treinado no X_train, 
-# mas em produção real idealmente concatenaríamos X_train + X_test.
+model_final = CatBoostClassifier(
+    iterations=300, learning_rate=0.1, depth=6,
+    auto_class_weights='Balanced', random_seed=42, verbose=False, allow_writing_files=False
+)
+model_final.fit(X_full[features_model], y)
 
+# Salvamento do pacote completo
 artifact = {
-    'model': model,
+    'model': model_final,
     'encoders': encoders,
-    'features': features_finais,
+    'features': features_model,
     'metadata': {
-        'autor': 'Time Data Science',
         'versao': '4.0.0-WeatherAware',
-        'tecnologia': 'CatBoost + OpenMeteo',
         'threshold': THRESHOLD,
-        'recall_esperado': f"{recall:.2%}"
+        'recall_validado': f"{final_recall:.2%}"
     }
 }
 
 joblib.dump(artifact, model_path)
-print(f"✅ Arquivo gerado com sucesso: {model_path}")
-print(" Pronto para deploy!")
+print(f"✅ Sucesso! Modelo exportado para: {model_path}")

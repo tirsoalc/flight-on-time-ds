@@ -61,9 +61,9 @@ Traduzimos a probabilidade matemática em uma experiência visual para o usuári
 
 * 🟢 **PONTUAL (Risco < 40%):**
     * Boas condições de voo e clima estável.
-* 🟡 **ALERTA PREVENTIVO (Risco 40% - 60%):**
+* 🟡 **ALERTA PREVENTIVO (Risco 40% - 70%):**
     * O modelo detectou instabilidade (ex: chuva leve ou aeroporto congestionado). Monitore o painel.
-* 🔴 **ATRASO PROVÁVEL (Risco > 60%):**
+* 🔴 **ATRASO PROVÁVEL (Risco > 70%):**
     * Condições críticas detectadas (ex: Tempestade + Feriado). Alta chance de problemas.
 
 ---
@@ -122,16 +122,23 @@ A API aceita dados do voo e, opcionalmente, dados de clima.
 **Resposta da API (Exemplo de Tempestade):**
 
 ```json
+
 {
-  "previsao": "🔴 ATRASADO",
-  "nivel_risco": "ALTO",
-  "probabilidade": 0.6925,
-  "mensagem": "Alta probabilidade de atraso (69.3%) devido a condições adversas.",
-  "detalhes": {
-      "clima": {
-          "chuva": "25.0mm",
-          "vento": "45.0km/h"
-      }
+  "id_voo": "GOL-0800",
+  "previsao_final": "🔴 ATRASADO",
+  "probabilidade_atraso": 0.709,
+  "classificacao_risco": {
+    "nivel": "ALTO",
+    "cor": "VERMELHO"
+  },
+  "insight": "Alta probabilidade de atraso (70.9%). Condições operacionais/climáticas adversas.",
+  "metadados_modelo": {
+    "versao": "4.0.0-WeatherAware",
+    "threshold_aplicado": 0.40,
+    "clima_detectado": {
+      "chuva": 25.0,
+      "vento": 45.0
+    }
   }
 }
 ```
