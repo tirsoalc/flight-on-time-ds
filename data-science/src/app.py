@@ -8,20 +8,21 @@ from typing import Optional
 import uvicorn
 import os
 import holidays
-import sys
+import requests # NOVO: Para chamar a API externa
+from datetime import datetime
 
-app = FastAPI(title="FlightOnTime AI Service (V4.2 Auto-Distance)")
+app = FastAPI(title="FlightOnTime AI Service (V5.0 Live Weather)")
 
-# --- CARGA E FUNÇÕES AUXILIARES ---
+# --- CARGA ROBUSTA ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(current_dir, "flight_classifier_v4.joblib")
 
 model = None
 features_list = []
-airport_coords = {} # Dicionário para lookup de lat/long
+airport_coords = {}
 THRESHOLD = 0.35
 
-# Função Haversine (Matemática pura)
+# Função Haversine
 def calculate_distance(lat1, lon1, lat2, lon2):
     r = 6371
     phi1, phi2 = np.radians(lat1), np.radians(lat2)
@@ -30,55 +31,101 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     a = np.sin(dphi/2)**2 + np.cos(phi1)*np.cos(phi2)*np.sin(dlambda/2)**2
     return r * 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
 
+# --- NOVA FUNÇÃO: FETCH WEATHER ---
+def get_live_weather(lat, long, date_time_str):
+    """
+    Consulta OpenMeteo para a data/hora específica.
+    Retorna (precipitation, wind_speed)
+    """
+    try:
+        dt = pd.to_datetime(date_time_str)
+        date_str = dt.strftime('%Y-%m-%d')
+        hour = dt.hour
+        
+        # OpenMeteo Endpoint
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={long}&hourly=precipitation,wind_speed_10m&start_date={date_str}&end_date={date_str}&timezone=America%2FSao_Paulo"
+        
+        response = requests.get(url, timeout=3) # Timeout curto para não travar a API
+        if response.status_code == 200:
+            data = response.json()
+            # O OpenMeteo retorna lista por horas (0 a 23). Pegamos o índice da hora do voo.
+            if 'hourly' in data:
+                precip = data['hourly']['precipitation'][hour]
+                wind = data['hourly']['wind_speed_10m'][hour]
+                return float(precip), float(wind), "✅ LIVE (OpenMeteo)"
+    except Exception as e:
+        print(f" Weather API Error: {e}")
+    
+    return 0.0, 5.0, " Offline/Date Limit" # Fallback se falhar ou data for longe
+
+# Carga do Modelo
 if os.path.exists(model_path):
     try:
-        print(f"📦 Carregando: {model_path}")
+        print(f" Carregando: {model_path}")
         artifact = joblib.load(model_path)
         model = artifact['model']
         features_list = artifact['features']
-        # Carregamos o mapa de aeroportos do arquivo
         airport_coords = artifact.get('airport_coords', {})
         meta = artifact.get('metadata', {})
         THRESHOLD = meta.get('threshold', 0.35)
-        print(f"✅ V4.2 Online | Aeroportos Mapeados: {len(airport_coords)}")
+        print(f"✅ V5.0 Online | Live Weather Ready")
     except Exception as e:
-        print(f"❌ Erro fatal: {e}")
+        print(f" Erro fatal: {e}")
 else:
-    print(f"⚠️ Modelo não encontrado.")
+    print(f" Modelo não encontrado.")
 
 class FlightInput(BaseModel):
     companhia: str
     origem: str
     destino: str
     data_partida: str  
-    # Agora é opcional (Optional), pode ser None
     distancia_km: Optional[float] = None 
-    precipitation: float = 0.0
-    wind_speed: float = 5.0
+    # Clima agora é opcional, pois tentaremos buscar sozinhos
+    precipitation: Optional[float] = None
+    wind_speed: Optional[float] = None
 
 @app.post("/predict")
 def predict(flight: FlightInput):
     if not model: raise HTTPException(status_code=503, detail="Service Unavailable")
     
     try:
-        # 1. Lógica de Distância Automática
+        # 1. Distância Automática
         dist_final = flight.distancia_km
+        orig_lat, orig_long = 0, 0
         
-        # Se o usuário não mandou a distância, calculamos nós mesmos
+        if flight.origem in airport_coords:
+            orig_lat = airport_coords[flight.origem]['lat']
+            orig_long = airport_coords[flight.origem]['long']
+
         if dist_final is None or dist_final == 0:
             if flight.origem in airport_coords and flight.destino in airport_coords:
-                orig = airport_coords[flight.origem]
                 dest = airport_coords[flight.destino]
-                dist_final = calculate_distance(
-                    orig['lat'], orig['long'],
-                    dest['lat'], dest['long']
-                )
+                dist_final = calculate_distance(orig_lat, orig_long, dest['lat'], dest['long'])
             else:
-                # Fallback: Se não acharmos o aeroporto, usamos uma média nacional (800km)
-                # ou retornamos erro. Vamos usar média para não quebrar.
-                dist_final = 800.0 
+                dist_final = 800.0
 
-        # 2. Resto do Pipeline
+        # 2. CLIMA AUTOMÁTICO (A GRANDE MUDANÇA)
+        precip_final = flight.precipitation
+        wind_final = flight.wind_speed
+        weather_source = "Manual Input"
+
+        # Se o usuário NÃO mandou clima, nós buscamos
+        if precip_final is None and wind_final is None:
+            if orig_lat != 0:
+                # Buscamos o clima na ORIGEM (onde o voo decola é o mais crítico)
+                p, w, source = get_live_weather(orig_lat, orig_long, flight.data_partida)
+                precip_final = p
+                wind_final = w
+                weather_source = source
+            else:
+                precip_final, wind_final = 0.0, 5.0
+                weather_source = "No Coords Found"
+        else:
+            # Se o usuário mandou algo, usamos (mas garantimos que não seja None)
+            precip_final = precip_final if precip_final is not None else 0.0
+            wind_final = wind_final if wind_final is not None else 5.0
+
+        # 3. Pipeline ML
         dt = pd.to_datetime(flight.data_partida)
         is_holiday = 1 if dt.date() in holidays.Brazil() else 0
         
@@ -86,13 +133,13 @@ def predict(flight: FlightInput):
             'companhia': str(flight.companhia),
             'origem': str(flight.origem),
             'destino': str(flight.destino),
-            'distancia_km': float(dist_final), # Usamos o calculado
+            'distancia_km': float(dist_final),
             'hora': dt.hour,
             'dia_semana': dt.dayofweek,
             'mes': dt.month,
             'is_holiday': is_holiday,
-            'precipitation': float(flight.precipitation),
-            'wind_speed': float(flight.wind_speed),
+            'precipitation': float(precip_final),
+            'wind_speed': float(wind_final),
             'clima_imputado': 0
         }])
         
@@ -104,16 +151,20 @@ def predict(flight: FlightInput):
         if prob < THRESHOLD:
             status, color = "🟢 PONTUAL", "green"
         elif prob < 0.70:
-            status, color = "🟡 ALERTA CLIMÁTICO/OPERACIONAL", "yellow"
+            status, color = "🟡 ALERTA", "yellow"
         else:
-            status, color = "🔴 ALTA PROBABILIDADE DE ATRASO", "red"
+            status, color = "🔴 ATRASO PROVÁVEL", "red"
             
         return {
             "previsao": status,
             "probabilidade": round(prob, 4),
             "cor": color,
-            "distancia_calculada": round(dist_final, 1), # Devolvemos para ele ver
-            "clima": f"Chuva: {flight.precipitation}mm"
+            "dados_utilizados": {
+                "distancia": round(dist_final, 1),
+                "chuva": precip_final,
+                "vento": wind_final,
+                "fonte_clima": weather_source
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
