@@ -1,168 +1,110 @@
-#  FlightOnTime - Motor de Inteligência Artificial
+Markdown
+# 🛫 FlightOnTime - Sistema Inteligente de Previsão de Voos
 
-> **Status:**  Em Produção (v5.0.0-LiveWeather) | **Recall de Segurança:** 90.8%
+> **Status do Projeto:** Em Produção (v5.0.0-LiveWeather)  
+> **Arquitetura:** Monorepo (Frontend + Backend + Data Science)
 
-Este repositório contém o **Core de Data Science** do projeto FlightOnTime. Nossa missão é prever atrasos em voos comerciais no Brasil utilizando Machine Learning avançado enriquecido com dados meteorológicos em tempo real, focando na segurança e planejamento do passageiro.
-
----
-
-##  A Evolução do Modelo (Do MVP ao Live-Weather)
-
-Nosso maior desafio foi lidar com o **desbalanceamento severo** dos dados (apenas 11% dos voos atrasam) e a complexidade de fatores externos.
-
-Evoluímos de um modelo puramente histórico para uma arquitetura autônoma que consulta APIs de clima em tempo real.
-
-| Versão | Modelo | Tecnologia | Recall (Detecção) | Status |
-|:-------|:-------|:-----------|:------------------|:-------|
-| v1.0 | Random Forest | Bagging Ensemble | 87.0% | Descontinuado |
-| v2.0 | XGBoost | Gradient Boosting | 87.2% | Testado |
-| v3.0 | CatBoost | Histórico Puro | 89.4% | Legacy (MVP) |
-| v4.0 | CatBoost + OpenMeteo | Weather-Aware Pipeline | 86.0% | Testado |
-| v4.1 | CatBoost Native | Weather-Aware + Native Features | 90.8% | Estável |
-| v4.2 | CatBoost + GeoMaps | Smart Distance Calculation | 90.7% | Estável |
-| **v5.0** | **CatBoost + Live API** | **Real-Time Weather Integration** | **90.7%** | **Em Produção** |
-
-*Nota: Com a implementação do CatBoost Native e integração Live, superamos a performance dos modelos anteriores, unindo precisão histórica com dados do mundo real.*
+O **FlightOnTime** é uma solução completa para prever atrasos em voos comerciais no Brasil. O sistema combina Inteligência Artificial avançada, dados meteorológicos em tempo real e uma arquitetura robusta de microserviços para garantir a segurança e o planejamento dos passageiros.
 
 ---
 
-##  Decisões Estratégicas de Negócio
+## 🏗 Estrutura do Repositório
 
-### 1. Otimização do Limiar de Decisão (Threshold)
+Este repositório agrupa todas as camadas da aplicação:
 
-Realizamos uma análise matemática utilizando o **F2-Score** (que prioriza o Recall).
+```text
+/ (Raiz)
+├── data-science/  # Core de ML (Python, CatBoost, FastAPI)
+├── back-end/      # API Gateway e Regras de Negócio (Java, Spring Boot)
+└── front-end/     # Interface do Usuário (React, Vite, Tailwind)
+🧠 1. Data Science & Inteligência Artificial
+Diretório: /data-science
 
-- **Sugestão do Algoritmo:** Corte em **0.43**.
-- **Decisão de Negócio (Override):** Fixamos o corte em **0.35**.
-- **Motivo:** Decidimos sacrificar precisão estatística para garantir a **Segurança**. Preferimos o risco de um "Falso Alerta Preventivo" do que deixar um passageiro perder o voo por não avisar sobre uma tempestade iminente.
+O "cérebro" do projeto. Responsável por calcular a probabilidade matemática de um atraso.
 
-### 2. Estratégia de Clima e Feriados (Pareto)
+Modelo: CatBoost Classifier (Gradient Boosting).
 
-- **Feriados:** Aplicamos o calendário `holidays.Brazil()` apenas na data de partida, cobrindo 94% dos picos de demanda.
-- **Clima:** O modelo consulta a API da **OpenMeteo** em tempo real. Condições adversas (chuva > 10mm, vento > 30km/h) aumentam drasticamente o risco calculado.
+Recursos (v5.0): Integração Live Weather (OpenMeteo) para considerar chuva e vento em tempo real, detecção automática de feriados e cálculo geodésico de distâncias.
 
----
+Performance: 90.7% de Recall (foco em segurança).
 
-##  Arquitetura e Engenharia de Features
+API: FastAPI (Python).
 
-O modelo v5.0 é um sistema autônomo que cruza histórico com dados vivos:
+☕ 2. Backend API
+Diretório: /back-end
 
-1. **Integração Meteorológica (NOVO):** Ingestão de dados de `precipitation` (mm) e `wind_speed` (km/h) para entender o impacto físico na aeronave.
-2. **Detector de Feriados:** Cruzamento em tempo real da data do voo com o calendário oficial.
-3. **Georreferenciamento:** Cálculo da distância geodésica (`distancia_km`) via Fórmula de Haversine.
-4. **CatBoost Native Support:** Tratamento nativo de categorias, aumentando a precisão em rotas complexas.
-5. **Smart Distance (v4.2):** O modelo "conhece" as coordenadas dos aeroportos e calcula a distância automaticamente.
-6. **Live Weather Integration (v5.0):** Conexão em tempo real com a API `OpenMeteo`. Se o usuário não fornecer dados climáticos, o sistema busca automaticamente a previsão do tempo para a hora e local do voo.
+O orquestrador do sistema. Gerencia as requisições, conecta-se ao motor de IA e aplica regras de negócio.
 
-### Stack Tecnológico
+Tecnologia: Java 21 + Spring Boot 3.5.4.
 
-- **Linguagem:** Python 3.10+
-- **ML Core:** CatBoost (Gradient Boosting)
-- **External Data:** Open-Meteo API (Dados Climáticos)
-- **API:** FastAPI + Uvicorn
-- **Dependência:** Biblioteca `requests` para chamadas HTTP.
-- **Deploy:** Docker / Oracle Cloud Infrastructure (OCI)
+Banco de Dados: MySQL (com Flyway).
 
----
+Funcionalidade: Recebe os dados do voo, consulta o microserviço de Data Science e formata a resposta padronizada para o cliente, gerenciando usuários e histórico.
 
-##  Regra de Negócio: O Semáforo de Risco
+💻 3. Frontend Dashboard
+Diretório: /front-end
 
-Traduzimos a probabilidade matemática em uma experiência visual para o usuário:
+A interface visual para o usuário final.
 
-- 🟢 **PONTUAL (Risco < 35%):**
-  - Boas condições de voo e clima estável.
-- 🟡 **ALERTA PREVENTIVO (Risco 35% - 70%):**
-  - O modelo detectou instabilidade (ex: chuva leve ou aeroporto congestionado). Monitore o painel.
-- 🔴 **ATRASO PROVÁVEL (Risco > 70%):**
-  - Condições críticas detectadas (ex: Tempestade + Feriado). Alta chance de problemas.
+Tecnologia: React + Vite + Tailwind CSS.
 
----
+UX: Autocomplete inteligente para aeroportos e companhias, validação de códigos IATA e exibição visual do "Semáforo de Risco".
 
-##  Instalação e Execução
+🚀 Como Executar o Projeto Completo
+Para rodar a aplicação inteira localmente, você precisará de 3 terminais abertos (um para cada serviço).
 
-### 1. Preparar o Ambiente
-```bash
+Passo 1: Iniciar o Motor de IA (Data Science)
+
+Bash
+cd data-science
+
+# Criar e ativar ambiente virtual (se necessário)
 python -m venv venv
-source venv/bin/activate  # ou venv\Scripts\activate no Windows
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Instalar dependências
 pip install -r requirements.txt
-```
 
-### 2. Treinar o Modelo v5.0 (Opcional)
+# Subir a API de previsão
+python -m uvicorn src.app:app --reload --port 8000
+Passo 2: Iniciar o Backend (Java)
 
-O repositório já inclui o arquivo `flight_classifier_v4.joblib` atualizado com o mapa de coordenadas. Para retreinar:
-```bash
-python data-science/src/train.py
-```
+Bash
+cd back-end
 
-### 3. Subir a API
+# Certifique-se de ter o MySQL rodando e configurado
+# Executar a aplicação Spring Boot
+./mvnw spring-boot:run
+O Backend rodará por padrão na porta 8080.
 
-Inicie o servidor de predição localmente (a partir da raiz do projeto):
-```bash
-python -m uvicorn data-science.src.app:app --reload
-```
+Passo 3: Iniciar o Frontend (React)
 
-Acesse a documentação automática em: http://127.0.0.1:8000/docs
+Bash
+cd front-end
 
----
+# Instalar dependências
+npm install
 
-##  Documentação da API
+# Rodar servidor de desenvolvimento
+npm run dev
+O Frontend estará disponível em http://localhost:5173.
 
-A API aceita dados do voo e busca automaticamente o clima se necessário.
+🚦 Regra de Negócio: O Semáforo de Risco
+O sistema traduz a probabilidade matemática em uma experiência visual simples:
 
-**Endpoint:** `POST /predict`
+🟢 PONTUAL (Risco < 35%): Boas condições de voo e clima estável.
 
-**Payload de Entrada (Minimalista - v5.0):** Agora o sistema é autônomo. Basta informar o voo e a data.
-```json
-{
-  "companhia": "GOL",
-  "origem": "Congonhas",
-  "destino": "Santos Dumont",
-  "data_partida": "2025-12-24T14:00:00"
-}
-```
+🟡 ALERTA (Risco 35% - 70%): Instabilidade detectada (chuva leve ou tráfego).
 
-*Nota: `distancia_km`, `precipitation` e `wind_speed` são opcionais. Se omitidos, a API calcula a distância geodésica e busca o clima em tempo real via OpenMeteo.*
+🔴 ATRASO PROVÁVEL (Risco > 70%): Condições críticas (Tempestade, Feriados).
 
-**Resposta da API (Exemplo com Clima Automático):**
-```json
-{
-  "previsao": "🟡 ALERTA",
-  "probabilidade": 0.654,
-  "cor": "yellow",
-  "dados_utilizados": {
-    "distancia": 366.0,
-    "chuva": 5.2,
-    "vento": 12.0,
-    "fonte_clima": "✅ LIVE (OpenMeteo)"
-  }
-}
-```
+🛠 Stack Tecnológico Geral
+Linguagens: Python 3.10+, Java 21, JavaScript/ES6.
 
----
+Frameworks: FastAPI, Spring Boot, React.
 
-##  Roadmap Estratégico (Fase 3)
+Dados: MySQL, Open-Meteo API, Kaggle Flight Data.
 
-Com a entrega da v5.0 (Live Weather), o sistema está completo em termos de previsão física. O próximo passo é o tráfego aéreo.
+DevOps: Docker, OCI (Oracle Cloud), Git Monorepo.
 
-### 1. Monitoramento de Malha Aérea (Efeito Dominó)
-
-**O Desafio:** Atrasos na aviação funcionam em cascata. Um atraso em Brasília afeta Guarulhos horas depois.
-
-**A Solução:** Integrar com APIs de tráfego (FlightRadar24) para calcular o "atraso médio do aeroporto" nos últimos 60 minutos.
-
-**Novas Features Planejadas:**
-
-- `fila_decolagem_atual`: Quantidade de aeronaves aguardando pista.
-- `indice_atraso_aeroporto`: Média de atraso atual do hub.
-
----
-
-##  Dataset
-
-**Fonte Oficial:** Flights in Brazil (2015-2017) - Kaggle  
-**Dados Climáticos:** Enriquecimento realizado via Open-Meteo Historical API.
-
-**Como usar:**
-
-1. Execute o Notebook `1_data_engineering_weather.ipynb` em `data-science/notebooks/` para gerar o dataset.
-2. Execute o Notebook `2_modeling_strategy_v4.ipynb` para análise exploratória.
+Nota: Para documentação detalhada de endpoints, treinamento de modelos ou componentes visuais, consulte o README.md específico dentro de cada pasta do projeto.
