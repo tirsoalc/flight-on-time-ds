@@ -1,4 +1,4 @@
-# 🛫 FlightOnTime - Sistema Inteligente de Previsão de Voos
+# FlightOnTime - Sistema Inteligente de Previsão de Voos
 
 > **Status do Projeto:** Em Produção (v5.0.0-LiveWeather)  
 > **Arquitetura:** Monorepo (Frontend + Backend + Data Science)
