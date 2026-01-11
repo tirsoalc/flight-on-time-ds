@@ -26,6 +26,7 @@ O "cérebro" do projeto. Responsável por calcular a probabilidade matemática d
 
 * **Modelo:** CatBoost Classifier (Gradient Boosting).
 * **Recursos (v5.0):** Integração **Live Weather** (OpenMeteo) para considerar chuva e vento em tempo real.
+* **Pesquisa Acadêmica:** Experimentamos arquiteturas de **Deep Learning (Embeddings)** para variáveis de alta cardinalidade. Embora funcional, o CatBoost manteve uma superioridade de ~10% no ROC-AUC, sendo escolhido para produção.
 * **API:** FastAPI (Python).
 
 ## 2. Backend API

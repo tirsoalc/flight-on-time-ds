@@ -21,6 +21,7 @@ Evoluímos de um modelo puramente histórico para uma arquitetura autônoma que 
 | v4.1 | CatBoost Native | Weather-Aware + Native Features | 90.8% | Estável |
 | v4.2 | CatBoost + GeoMaps | Smart Distance Calculation | 90.7% | Estável |
 | **v5.0** | **CatBoost + Live API** | **Real-Time Weather Integration** | **90.7%** | **Em Produção** |
+| **vEXP** | **Deep Learning** | **Entity Embeddings + DNN** | **77.5%** | **Pesquiça Experimental** |
 
 *Nota: Com a implementação do CatBoost Native e integração Live, superamos a performance dos modelos anteriores, unindo precisão histórica com dados do mundo real.*
 
@@ -53,6 +54,44 @@ O modelo v5.0 é um sistema autônomo que cruza histórico com dados vivos:
 4. **CatBoost Native Support:** Tratamento nativo de categorias, aumentando a precisão em rotas complexas.
 5. **Smart Distance (v4.2):** O modelo "conhece" as coordenadas dos aeroportos e calcula a distância automaticamente.
 6. **Live Weather Integration (v5.0):** Conexão em tempo real com a API `OpenMeteo`. Se o usuário não fornecer dados climáticos, o sistema busca automaticamente a previsão do tempo para a hora e local do voo.
+
+---
+
+## Laboratório de Pesquisa: Deep Learning & Entity Embeddings
+
+Como parte da nossa busca pela excelência e inovação, realizamos um experimento avançado explorando **Redes Neurais Profundas (Deep Learning)** como alternativa ao Gradient Boosting. O objetivo era entender se uma arquitetura baseada em **Entity Embeddings** poderia capturar padrões latentes entre aeroportos e rotas que escapam aos modelos de árvores.
+
+### O Percurso do Experimento (Pipeline de Resgate)
+
+Diferente do modelo CatBoost, que lida nativamente com categorias, o desenvolvimento da Rede Neural exigiu uma engenharia de dados complexa para evitar o colapso do modelo e problemas de hardware:
+
+* **Abandono do One-Hot Encoding:** Inicialmente, testamos One-Hot para aeroportos e companhias. No entanto, a alta cardinalidade gerou vetores esparsos que consumiam toda a memória RAM disponível e diluíam o poder preditivo do modelo.
+* **Implementação de Entity Embeddings:** Substituímos o One-Hot por camadas de Embedding. Isso permitiu que o modelo aprendesse representações numéricas densas (embeddings) para cada aeroporto, "agrupando" logicamente terminais com comportamentos operacionais similares.
+* **Tratamento de Desbalanceamento Severo:**
+    * **Class Weights:** Em vez de técnicas de reamostragem, aplicamos pesos diferenciados na função de perda para forçar o modelo a dar maior importância aos atrasos (classe minoritária).
+    * **Binary Crossentropy Estável:** Após testar *Focal Loss*, estabilizamos o treinamento com *Binary Crossentropy* e um *Learning Rate* reduzido ($10^{-4}$) para evitar a explosão de gradientes.
+* **Otimização do Limiar (Threshold):** Em vez do padrão 0.5, utilizamos o **F2-Score** para encontrar o ponto ótimo de decisão em **0.425**, priorizando o **Recall** (segurança do passageiro) sobre a precisão.
+
+### Resultados Comparativos
+
+| Métrica | CatBoost (Produção) | Deep Learning (Estável) |
+| :--- | :--- | :--- |
+| **ROC-AUC** | **0.794** | 0.697 |
+| **Recall (Detecção)** | **90.8%** | 77.5% |
+| **Acurácia** | **73.1%** | 50.5% |
+| **F1-Score** | **0.725** | 0.267 |
+
+### Diagnóstico e Decisão de Engenharia
+
+Após uma análise rigorosa, decidimos **manter o CatBoost em produção**. Os principais fundamentos foram:
+
+1.  **Eficiência em Dados Tabulares:** Modelos de *Gradient Boosting* demonstraram ser superiores para este dataset estruturado com 11 variáveis. Redes Neurais geralmente exigem uma dimensionalidade maior de *features* para superar modelos de árvores.
+2.  **Relação Precisão/Recall:** O modelo DL, embora tenha atingido um Recall sólido (77%), apresentou uma taxa de falsos positivos significativamente maior que o CatBoost, o que poderia comprometer a experiência do usuário com alertas desnecessários.
+3.  **Complexidade Operacional:** O custo computacional e a manutenção de uma arquitetura de Deep Learning não justificaram o desempenho inferior em comparação com a solução nativa do CatBoost.
+
+> **Nota de Portfólio:** Este experimento demonstra a nossa capacidade de debugging e a nossa disciplina em seguir uma abordagem científica: testar hipóteses complexas, mas escolher a ferramenta mais eficaz para o problema real de negócio. O notebook está preservado na pasta notebooks.
+
+---
 
 ### Stack Tecnológico
 
