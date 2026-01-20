@@ -21,7 +21,7 @@ public record FlightRequest(
         String destination,
 
         @JsonProperty("data_partida")
-        @Future
+        //@Future
         @NotNull Instant departureDate
 ) {
 }
